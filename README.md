@@ -24,9 +24,10 @@ Unlike traditional DEXs where bots can see pending transactions in the mempool, 
 | Contract | Address | Deployed At |
 |----------|---------|-------------|
 | **OptimalAMM Pool** (tNight/mUSDC) | `57c54a7c61f60a1f769313d89a4191782fa92c7d91bb51e79bfc9256eca1229b` | 2026-04-09 |
-| **Contract Deployment (OptimalAMM Pool)** | [🔗 View Transaction](https://preprod.midnightexplorer.com/tx/0x87b8688b10aa30a348c7082734e0701f51a63848dbf5a5f6cea567882514c1d9) | 2026-04-10 |
-| **MidnightUSDC (mUSDC)** | `c85172925beae8334c01135cfbd364cf2f6858e173be8c13bb82197890f645f4` | 2026-04-10 |
+| **Contract Deployment Link (OptimalAMM Pool)** | [🔗 View Transaction](https://preprod.midnightexplorer.com/tx/0x87b8688b10aa30a348c7082734e0701f51a63848dbf5a5f6cea567882514c1d9) | 2026-04-10 |
 | **Contract Calls (OptimalAMM Pool)** | [🔗 View All Calls](https://preprod.midnightexplorer.com/contracts?search=57c54a7c61f60a1f769313d89a4191782fa92c7d91bb51e79bfc9256eca1229b) | 2026-04-10 |
+| **MidnightUSDC (mUSDC)** | `c85172925beae8334c01135cfbd364cf2f6858e173be8c13bb82197890f645f4` | 2026-04-10 |
+| **Contract Deployment Link (MidnightUSDC - mUSDC)** | [🔗 View Transaction](https://preprod.midnightexplorer.com/tx/0x090a4bad3cfa408e0dda1cfb09031eef7783fc6e6a7d7f8a62d6aa58c542d03f) | 2026-04-10 |
 
 | Action | Tx Hash | Block |
 |--------|---------|-------|
