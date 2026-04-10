@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  proof-server:
+    image: midnightntwrk/proof-server:8.0.3
+    container_name: midswap-proof-server
+    ports:
+      - "6300:6300"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    environment:
+      - RUST_LOG=info
+
+networks:
+  default:
+    name: midswap-network
