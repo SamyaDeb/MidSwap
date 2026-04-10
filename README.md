@@ -25,6 +25,7 @@ Unlike traditional DEXs where bots can see pending transactions in the mempool, 
 |----------|---------|-------------|
 | **OptimalAMM Pool** (tNight/mUSDC) | `57c54a7c61f60a1f769313d89a4191782fa92c7d91bb51e79bfc9256eca1229b` | 2026-04-09 |
 | **MidnightUSDC (mUSDC)** | `c85172925beae8334c01135cfbd364cf2f6858e173be8c13bb82197890f645f4` | 2026-04-10 |
+| **Contract Call (All OptimalAMM Pool Calls)s** | `[c85172925beae8334c01135cfbd364cf2f6858e173be8c13bb82197890f645f4](https://preprod.midnightexplorer.com/contracts?search=57c54a7c61f60a1f769313d89a4191782fa92c7d91bb51e79bfc9256eca1229b)` | 2026-04-10 |
 
 ### Deployment Transactions
 
