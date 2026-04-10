@@ -1,0 +1,208 @@
+pragma language_version >= 0.22.0;
+import CompactStandardLibrary;
+
+// MidSwap - Privacy-Preserving DEX on Midnight
+// Witness-based AMM (division-free using constraint verification)
+
+// Pool state (private)
+ledger reserve0: Uint<64>;
+ledger reserve1: Uint<64>;
+ledger totalLPSupply: Uint<64>;
+ledger lpBalances: Vector<256, Uint<64>>;  // LP tokens per user (index = userID)
+
+// Configuration
+ledger feeBps: Uint<16>;  // Fee in basis points (30 = 0.3%)
+ledger initialized: Boolean;
+
+// Initialize pool with first liquidity
+export circuit initialize(
+  amount0: Uint<64>,
+  amount1: Uint<64>,
+  lpTokensOut: Uint<64>,  // Witness: sqrt(amount0 * amount1)
+  depositorID: Uint<8>    // User index (0-255)
+): Uint<64> {
+  assert(initialized == false, "Already initialized");
+  assert(amount0 > 0 && amount1 > 0, "Invalid amounts");
+  assert(depositorID < 256, "Invalid depositor ID");
+  
+  // Verify LP tokens: lpTokensOut^2 ≈ amount0 * amount1
+  const product: Uint<128> = (amount0 as Uint<128>) * (amount1 as Uint<128>);
+  const sqrtCheck: Uint<128> = (lpTokensOut as Uint<128>) * (lpTokensOut as Uint<128>);
+  const twoLP: Uint<64> = 2 * lpTokensOut + 1;
+  const upperBound: Uint<128> = sqrtCheck + (twoLP as Uint<128>);
+  assert(sqrtCheck <= product && upperBound > product, "Invalid LP tokens");
+  
+  // Initialize state
+  reserve0 = amount0;
+  reserve1 = amount1;
+  totalLPSupply = lpTokensOut;
+  feeBps = 30;  // 0.3% fee
+  initialized = true;
+  
+  // Set user's LP balance
+  const currentBalance: Uint<64> = lpBalances[depositorID];
+  lpBalances[depositorID] = currentBalance + lpTokensOut;
+  
+  return disclose(lpTokensOut);
+}
+
+// Add liquidity to existing pool
+export circuit addLiquidity(
+  amount0: Uint<64>,
+  amount1: Uint<64>,
+  lpTokensOut: Uint<64>,  // Witness: (amount0 * totalLPSupply) / reserve0
+  minLPTokens: Uint<64>,
+  depositorID: Uint<8>
+): Uint<64> {
+  assert(initialized == true, "Not initialized");
+  assert(amount0 > 0 && amount1 > 0, "Invalid amounts");
+  assert(depositorID < 256, "Invalid depositor ID");
+  
+  // Verify proportional amounts: amount0 * reserve1 == amount1 * reserve0
+  const ratio0: Uint<128> = extend<128>(amount0) * extend<128>(reserve1);
+  const ratio1: Uint<128> = extend<128>(amount1) * extend<128>(reserve0);
+  assert(ratio0 == ratio1, "Amounts must be proportional");
+  
+  // Verify LP tokens: lpTokensOut * reserve0 ≈ amount0 * totalLPSupply
+  const lpCheck: Uint<128> = extend<128>(lpTokensOut) * extend<128>(reserve0);
+  const lpExpected: Uint<128> = extend<128>(amount0) * extend<128>(totalLPSupply);
+  const lpUpperBound: Uint<128> = lpCheck + extend<128>(reserve0);
+  assert(lpCheck <= lpExpected && lpUpperBound > lpExpected, "Invalid LP token calculation");
+  assert(lpTokensOut >= minLPTokens, "Insufficient LP tokens");
+  
+  // Update reserves
+  reserve0 = reserve0 + amount0;
+  reserve1 = reserve1 + amount1;
+  totalLPSupply = totalLPSupply + lpTokensOut;
+  
+  // Update user balance
+  const currentBalance: Uint<64> = lpBalances[depositorID];
+  lpBalances[depositorID] = currentBalance + lpTokensOut;
+  
+  return disclose(lpTokensOut);
+}
+
+// Remove liquidity from pool
+export circuit removeLiquidity(
+  lpAmount: Uint<64>,
+  amount0Out: Uint<64>,  // Witness: (lpAmount * reserve0) / totalLPSupply
+  amount1Out: Uint<64>,  // Witness: (lpAmount * reserve1) / totalLPSupply
+  minAmount0: Uint<64>,
+  minAmount1: Uint<64>,
+  withdrawerID: Uint<8>
+): [Uint<64>, Uint<64>] {
+  assert(initialized == true, "Not initialized");
+  assert(lpAmount > 0, "Invalid LP amount");
+  
+  const userBalance: Uint<64> = lpBalances[withdrawerID];
+  assert(userBalance >= lpAmount, "Insufficient LP balance");
+  
+  // Verify amount0Out: amount0Out * totalLPSupply ≈ lpAmount * reserve0
+  const check0: Uint<128> = extend<128>(amount0Out) * extend<128>(totalLPSupply);
+  const expected0: Uint<128> = extend<128>(lpAmount) * extend<128>(reserve0);
+  const upper0: Uint<128> = check0 + extend<128>(totalLPSupply);
+  assert(check0 <= expected0 && upper0 > expected0, "Invalid amount0 calculation");
+  
+  // Verify amount1Out: amount1Out * totalLPSupply ≈ lpAmount * reserve1
+  const check1: Uint<128> = extend<128>(amount1Out) * extend<128>(totalLPSupply);
+  const expected1: Uint<128> = extend<128>(lpAmount) * extend<128>(reserve1);
+  const upper1: Uint<128> = check1 + extend<128>(totalLPSupply);
+  assert(check1 <= expected1 && upper1 > expected1, "Invalid amount1 calculation");
+  
+  assert(amount0Out >= minAmount0 && amount1Out >= minAmount1, "Insufficient output");
+  
+  // Update reserves
+  reserve0 = reserve0 - amount0Out;
+  reserve1 = reserve1 - amount1Out;
+  totalLPSupply = totalLPSupply - lpAmount;
+  
+  // Update user balance
+  lpBalances[withdrawerID] = userBalance - lpAmount;
+  
+  return [disclose(amount0Out), disclose(amount1Out)];
+}
+
+// Swap tokens using constant product AMM formula
+export circuit swap(
+  amountIn: Uint<64>,
+  amountOut: Uint<64>,    // Witness: calculated off-chain
+  minAmountOut: Uint<64>,
+  zeroForOne: Boolean,    // true = token0 -> token1, false = token1 -> token0
+  traderID: Uint<8>
+): Uint<64> {
+  assert(initialized == true, "Not initialized");
+  assert(amountIn > 0, "Invalid input amount");
+  
+  // Determine input/output reserves based on direction
+  const reserveIn: Uint<64> = zeroForOne ? reserve0 : reserve1;
+  const reserveOut: Uint<64> = zeroForOne ? reserve1 : reserve0;
+  
+  // AMM formula with 0.3% fee: 
+  // amountOut = (amountIn * 997 * reserveOut) / (reserveIn * 1000 + amountIn * 997)
+  const amountInWithFee: Uint<128> = extend<128>(amountIn) * 997;
+  const numerator: Uint<128> = amountInWithFee * extend<128>(reserveOut);
+  const denominator: Uint<128> = extend<128>(reserveIn) * 1000 + amountInWithFee;
+  
+  // Verify witness: amountOut * denominator ≈ numerator (allowing ≤1 unit rounding)
+  const check: Uint<128> = extend<128>(amountOut) * denominator;
+  const upperBound: Uint<128> = check + denominator;
+  assert(check <= numerator && upperBound > numerator, "Invalid output calculation");
+  
+  // Slippage protection
+  assert(amountOut >= minAmountOut, "Slippage exceeded");
+  assert(amountOut < reserveOut, "Insufficient liquidity");
+  
+  // Update reserves based on swap direction
+  if (zeroForOne) {
+    reserve0 = reserve0 + amountIn;
+    reserve1 = reserve1 - amountOut;
+  } else {
+    reserve1 = reserve1 + amountIn;
+    reserve0 = reserve0 - amountOut;
+  }
+  
+  return disclose(amountOut);
+}
+
+// View: Get current reserves
+export pure circuit getReserves(): [Uint<64>, Uint<64>] {
+  return [disclose(reserve0), disclose(reserve1)];
+}
+
+// View: Get total LP token supply
+export pure circuit getTotalSupply(): Uint<64> {
+  return disclose(totalLPSupply);
+}
+
+// View: Get user's LP token balance
+export pure circuit getUserBalance(userID: Uint<8>): Uint<64> {
+  assert(userID < 256, "Invalid user ID");
+  return disclose(lpBalances[userID]);
+}
+
+// View: Get fee in basis points
+export pure circuit getFee(): Uint<16> {
+  return disclose(feeBps);
+}
+
+// Helper: Quote expected output for given input (verification only)
+export pure circuit quoteAmountOut(
+  amountIn: Uint<64>,
+  reserveInParam: Uint<64>,
+  reserveOutParam: Uint<64>,
+  amountOutWitness: Uint<64>  // User provides expected output
+): Uint<64> {
+  assert(amountIn > 0, "Insufficient input");
+  assert(reserveInParam > 0 && reserveOutParam > 0, "Insufficient liquidity");
+  
+  const amountInWithFee: Uint<128> = extend<128>(amountIn) * 997;
+  const numerator: Uint<128> = amountInWithFee * extend<128>(reserveOutParam);
+  const denominator: Uint<128> = extend<128>(reserveInParam) * 1000 + amountInWithFee;
+  
+  // Verify witness is correct
+  const check: Uint<128> = extend<128>(amountOutWitness) * denominator;
+  const upperBound: Uint<128> = check + denominator;
+  assert(check <= numerator && upperBound > numerator, "Invalid quote");
+  
+  return disclose(amountOutWitness);
+}

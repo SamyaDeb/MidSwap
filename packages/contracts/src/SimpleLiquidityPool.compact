@@ -1,0 +1,204 @@
+// MidSwap Simple Liquidity Pool - Privacy-Preserving AMM
+// Simplified version compatible with Compact 0.22.0
+// Implements constant product formula: x * y = k
+
+pragma language_version >= 0.22.0;
+
+import CompactStandardLibrary;
+
+// ============================================
+// LEDGER STATE (Public On-Chain)
+// ============================================
+
+ledger reserve0: Uint<64>;        // Token0 reserve
+ledger reserve1: Uint<64>;        // Token1 reserve
+ledger totalLPSupply: Uint<64>;   // Total LP tokens
+ledger initialized: Boolean;       // Initialization flag
+ledger feeBps: Uint<16>;          // Fee in basis points (30 = 0.3%)
+
+// ============================================
+// SEALED LEDGER (Private State - ZK Protected)
+// ============================================
+
+sealed ledger lpBalances: Map<Bytes<32>, Uint<64>>;
+
+// ============================================
+// INITIALIZATION
+// ============================================
+
+export circuit initialize(
+  amount0: Uint<64>,
+  amount1: Uint<64>,
+  depositor: Bytes<32>,
+  fee: Uint<16>
+): Uint<64> {
+  assert(!initialized, "Already initialized");
+  assert(amount0 > 1000, "Amount0 too small");
+  assert(amount1 > 1000, "Amount1 too small");
+  assert(fee <= 1000, "Fee too high");
+  
+  // Calculate initial liquidity
+  const product: Uint<128> = extend<128>(amount0) * extend<128>(amount1);
+  const liquidity: Uint<64> = sqrt64(product);
+  
+  // Lock 1000 tokens as minimum liquidity
+  const lpTokens: Uint<64> = liquidity - 1000;
+  
+  // Set initial state
+  reserve0 = amount0;
+  reserve1 = amount1;
+  totalLPSupply = liquidity;
+  feeBps = fee;
+  initialized = true;
+  
+  // Credit LP tokens
+  lpBalances[depositor] = lpTokens;
+  
+  return disclose(lpTokens);
+}
+
+// ============================================
+// ADD LIQUIDITY
+// ============================================
+
+export circuit addLiquidity(
+  amount0: Uint<64>,
+  amount1: Uint<64>,
+  depositor: Bytes<32>
+): Uint<64> {
+  assert(initialized, "Not initialized");
+  assert(amount0 > 0, "Invalid amount0");
+  assert(amount1 > 0, "Invalid amount1");
+  
+  // Calculate LP tokens (simplified - uses amount0 ratio)
+  const extended0: Uint<128> = extend<128>(amount0);
+  const extendedSupply: Uint<128> = extend<128>(totalLPSupply);
+  const extendedReserve0: Uint<128> = extend<128>(reserve0);
+  
+  const numerator: Uint<128> = extended0 * extendedSupply;
+  const quotient: Uint<128> = numerator \ extendedReserve0;
+  const lpTokens: Uint<64> = truncate<64>(quotient);
+  
+  assert(lpTokens > 0, "Insufficient liquidity");
+  
+  // Update reserves
+  reserve0 = reserve0 + amount0;
+  reserve1 = reserve1 + amount1;
+  totalLPSupply = totalLPSupply + lpTokens;
+  
+  // Credit LP tokens
+  const currentBalance: Uint<64> = lpBalances[depositor];
+  lpBalances[depositor] = currentBalance + lpTokens;
+  
+  return disclose(lpTokens);
+}
+
+// ============================================
+// REMOVE LIQUIDITY
+// ============================================
+
+export circuit removeLiquidity(
+  lpAmount: Uint<64>,
+  withdrawer: Bytes<32>
+): [Uint<64>, Uint<64>] {
+  assert(initialized, "Not initialized");
+  assert(lpAmount > 0, "Invalid amount");
+  
+  // Check user balance
+  const userBalance: Uint<64> = lpBalances[withdrawer];
+  assert(userBalance >= lpAmount, "Insufficient balance");
+  
+  // Calculate withdrawal amounts
+  const extendedLP: Uint<128> = extend<128>(lpAmount);
+  const extendedSupply: Uint<128> = extend<128>(totalLPSupply);
+  const extendedReserve0: Uint<128> = extend<128>(reserve0);
+  const extendedReserve1: Uint<128> = extend<128>(reserve1);
+  
+  const numerator0: Uint<128> = extendedLP * extendedReserve0;
+  const quotient0: Uint<128> = div(numerator0, extendedSupply);
+  const amount0: Uint<64> = truncate<64>(quotient0);
+  
+  const numerator1: Uint<128> = extendedLP * extendedReserve1;
+  const quotient1: Uint<128> = div(numerator1, extendedSupply);
+  const amount1: Uint<64> = truncate<64>(quotient1);
+  
+  assert(amount0 > 0 && amount1 > 0, "Insufficient liquidity burned");
+  
+  // Update state
+  reserve0 = reserve0 - amount0;
+  reserve1 = reserve1 - amount1;
+  totalLPSupply = totalLPSupply - lpAmount;
+  lpBalances[withdrawer] = userBalance - lpAmount;
+  
+  return [disclose(amount0), disclose(amount1)];
+}
+
+// ============================================
+// SWAP
+// ============================================
+
+export circuit swap(
+  amountIn: Uint<64>,
+  minAmountOut: Uint<64>,
+  zeroForOne: Boolean,
+  trader: Bytes<32>
+): Uint<64> {
+  assert(initialized, "Not initialized");
+  assert(amountIn > 0, "Invalid amountIn");
+  
+  // Determine reserves
+  const reserveIn: Uint<64> = zeroForOne ? reserve0 : reserve1;
+  const reserveOut: Uint<64> = zeroForOne ? reserve1 : reserve0;
+  
+  // Apply fee (fee deducted from input)
+  const feeNumerator: Uint<64> = amountIn * feeBps;
+  const feeAmount: Uint<64> = div(feeNumerator, 10000);
+  const amountInAfterFee: Uint<64> = amountIn - feeAmount;
+  
+  // Calculate output using constant product formula
+  // amountOut = (amountInAfterFee * reserveOut) / (reserveIn + amountInAfterFee)
+  const extendedInAfterFee: Uint<128> = extend<128>(amountInAfterFee);
+  const extendedReserveOut: Uint<128> = extend<128>(reserveOut);
+  const extendedReserveIn: Uint<128> = extend<128>(reserveIn);
+  
+  const numerator: Uint<128> = extendedInAfterFee * extendedReserveOut;
+  const denominator: Uint<128> = extendedReserveIn + extendedInAfterFee;
+  const quotient: Uint<128> = div(numerator, denominator);
+  const amountOut: Uint<64> = truncate<64>(quotient);
+  
+  assert(amountOut >= minAmountOut, "Slippage exceeded");
+  assert(amountOut > 0 && amountOut < reserveOut, "Invalid output amount");
+  
+  // Update reserves
+  const newReserveIn: Uint<64> = reserveIn + amountIn;
+  const newReserveOut: Uint<64> = reserveOut - amountOut;
+  
+  reserve0 = zeroForOne ? newReserveIn : newReserveOut;
+  reserve1 = zeroForOne ? newReserveOut : newReserveIn;
+  
+  return disclose(amountOut);
+}
+
+// ============================================
+// QUERY FUNCTIONS
+// ============================================
+
+export circuit getReserves(): [Uint<64>, Uint<64>] {
+  return [disclose(reserve0), disclose(reserve1)];
+}
+
+export circuit getUserBalance(user: Bytes<32>): Uint<64> {
+  return disclose(lpBalances[user]);
+}
+
+export circuit getTotalSupply(): Uint<64> {
+  return disclose(totalLPSupply);
+}
+
+export circuit getFee(): Uint<16> {
+  return disclose(feeBps);
+}
+
+export circuit isInitialized(): Boolean {
+  return disclose(initialized);
+}

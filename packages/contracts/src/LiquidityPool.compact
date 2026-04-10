@@ -1,0 +1,309 @@
+pragma language_version >= 0.22.0;
+import CompactStandardLibrary;
+
+// Bounded numeric aliases chosen to make overflow checks explicit.
+type FeeMul = Uint<0..10001>;
+type AmountInWithFee = Uint<0..184467440737095516160000>;
+type SwapNumerator = Uint<0..3402823669209384634633746074317682114560000>;
+type SwapDenominator = Uint<0..368934881474191032319999>;
+type Product128 = Uint<0..340282366920938463463374607431768211456>;
+
+// q * denominator max bound for q:Uint<64>, denominator:SwapDenominator.
+type QTimesDen = Uint<0..68056473384187692692490564919714667095251777120000>;
+
+// Public pool state
+ledger reserve0: Uint<64>;
+ledger reserve1: Uint<64>;
+ledger totalLPSupply: Uint<64>;
+ledger kLast: Product128;
+ledger initialized: Boolean;
+ledger feeBps: Uint<16>;
+
+// LP balances (mutable contract state)
+ledger lpBalances: Map<Bytes<32>, Uint<64>>;
+
+// Off-chain arithmetic witnesses. Contract verifies correctness via constraints.
+witness divFloor(numerator: SwapNumerator, denominator: SwapDenominator): Uint<64>;
+witness sqrtFloor(value: Product128): Uint<64>;
+
+pure circuit verifyFloorDivision(
+  numerator: SwapNumerator,
+  denominator: SwapDenominator,
+  quotient: Uint<64>
+): [] {
+  assert(denominator > 0, "Division by zero");
+
+  const qTimesD: QTimesDen = quotient * denominator;
+  const nWide: QTimesDen = numerator as QTimesDen;
+
+  assert(qTimesD <= nWide, "Invalid quotient lower bound");
+
+  const remainder: QTimesDen = nWide - qTimesD;
+  const dWide: QTimesDen = denominator as QTimesDen;
+  assert(remainder < dWide, "Invalid quotient upper bound");
+
+  return [];
+}
+
+pure circuit verifyFloorSqrt(value: Product128, root: Uint<64>): [] {
+  const r2: Product128 = root * root;
+  assert(r2 <= value, "Invalid sqrt lower bound");
+
+  const delta: Product128 = value - r2;
+  const nextStep: Uint<65> = (root * 2) + 1;
+  assert((delta as Uint<129>) < (nextStep as Uint<129>), "Invalid sqrt upper bound");
+
+  return [];
+}
+
+// initialize(amount0, amount1, depositor, fee): lpTokens
+export circuit initialize(
+  amount0: Uint<64>,
+  amount1: Uint<64>,
+  depositor: Bytes<32>,
+  fee: Uint<16>
+): Uint<64> {
+  const amount0Pub: Uint<64> = disclose(amount0);
+  const amount1Pub: Uint<64> = disclose(amount1);
+  const depositorPub: Bytes<32> = disclose(depositor);
+  const feePub: Uint<16> = disclose(fee);
+
+  assert(!initialized, "Pool already initialized");
+  assert(amount0Pub > 0, "Amount0 must be positive");
+  assert(amount1Pub > 0, "Amount1 must be positive");
+  assert(feePub <= 1000, "Fee too high");
+
+  const product: Product128 = amount0Pub * amount1Pub;
+  const liquidityWitness: Uint<64> = sqrtFloor(product);
+  verifyFloorSqrt(product, liquidityWitness);
+
+  const liquidity: Uint<64> = disclose(liquidityWitness);
+  assert(liquidity > 1000, "Insufficient initial liquidity");
+
+  const minted: Uint<64> = liquidity - 1000;
+
+  reserve0 = amount0Pub;
+  reserve1 = amount1Pub;
+  totalLPSupply = disclose(liquidity);
+  kLast = disclose(product);
+  feeBps = feePub;
+  initialized = disclose(true);
+
+  lpBalances.insert(depositorPub, minted);
+
+  return disclose(minted);
+}
+
+// addLiquidity(amount0, amount1, depositor): lpTokens
+export circuit addLiquidity(
+  amount0: Uint<64>,
+  amount1: Uint<64>,
+  depositor: Bytes<32>
+): Uint<64> {
+  const amount0Pub: Uint<64> = disclose(amount0);
+  const amount1Pub: Uint<64> = disclose(amount1);
+  const depositorPub: Bytes<32> = disclose(depositor);
+
+  assert(initialized, "Pool not initialized");
+  assert(amount0Pub > 0, "Amount0 must be positive");
+  assert(amount1Pub > 0, "Amount1 must be positive");
+
+  const r0: Uint<64> = reserve0;
+  const r1: Uint<64> = reserve1;
+  const supply: Uint<64> = totalLPSupply;
+
+  // Enforce Uniswap ratio by cross multiplication (no division operator).
+  const leftRatio: Product128 = amount0Pub * r1;
+  const rightRatio: Product128 = amount1Pub * r0;
+  assert(leftRatio == rightRatio, "Amounts not proportional");
+
+  // LP mint = floor(amount0 * supply / r0)
+  const num: SwapNumerator = (amount0Pub * supply) as SwapNumerator;
+  const den: SwapDenominator = r0 as SwapDenominator;
+  const lpTokensWitness: Uint<64> = divFloor(num, den);
+  verifyFloorDivision(num, den, lpTokensWitness);
+
+  const lpTokens: Uint<64> = disclose(lpTokensWitness);
+  assert(lpTokens > 0, "Insufficient LP minted");
+
+  const newReserve0: Uint<64> = (r0 + amount0Pub) as Uint<64>;
+  const newReserve1: Uint<64> = (r1 + amount1Pub) as Uint<64>;
+  const newSupply: Uint<64> = (supply + lpTokens) as Uint<64>;
+
+  reserve0 = disclose(newReserve0);
+  reserve1 = disclose(newReserve1);
+  totalLPSupply = disclose(newSupply);
+  kLast = disclose(newReserve0 * newReserve1);
+
+  const current: Uint<64> = lpBalances.member(depositorPub) ? lpBalances.lookup(depositorPub) : (0 as Uint<64>);
+  lpBalances.insert(depositorPub, (current + lpTokens) as Uint<64>);
+
+  return disclose(lpTokens);
+}
+
+// removeLiquidity(lpAmount, withdrawer): [amount0, amount1]
+export circuit removeLiquidity(
+  lpAmount: Uint<64>,
+  withdrawer: Bytes<32>
+): [Uint<64>, Uint<64>] {
+  const lpAmountPub: Uint<64> = disclose(lpAmount);
+  const withdrawerPub: Bytes<32> = disclose(withdrawer);
+
+  assert(initialized, "Pool not initialized");
+  assert(lpAmountPub > 0, "Invalid LP amount");
+
+  const bal: Uint<64> = lpBalances.lookup(withdrawerPub);
+  assert(bal >= lpAmountPub, "Insufficient LP balance");
+
+  const r0: Uint<64> = reserve0;
+  const r1: Uint<64> = reserve1;
+  const supply: Uint<64> = totalLPSupply;
+
+  const den: SwapDenominator = supply as SwapDenominator;
+
+  const num0: SwapNumerator = (lpAmountPub * r0) as SwapNumerator;
+  const num1: SwapNumerator = (lpAmountPub * r1) as SwapNumerator;
+
+  const amount0Witness: Uint<64> = divFloor(num0, den);
+  const amount1Witness: Uint<64> = divFloor(num1, den);
+
+  verifyFloorDivision(num0, den, amount0Witness);
+  verifyFloorDivision(num1, den, amount1Witness);
+
+  const amount0: Uint<64> = disclose(amount0Witness);
+  const amount1: Uint<64> = disclose(amount1Witness);
+
+  assert(amount0 > 0, "Insufficient amount0 out");
+  assert(amount1 > 0, "Insufficient amount1 out");
+
+  const newReserve0: Uint<64> = r0 - amount0;
+  const newReserve1: Uint<64> = r1 - amount1;
+
+  reserve0 = disclose(newReserve0);
+  reserve1 = disclose(newReserve1);
+  totalLPSupply = disclose((supply - lpAmountPub) as Uint<64>);
+  kLast = disclose(newReserve0 * newReserve1);
+
+  lpBalances.insert(withdrawerPub, (bal - lpAmountPub) as Uint<64>);
+
+  return [disclose(amount0), disclose(amount1)];
+}
+
+// swap(amountIn, minOut, zeroForOne, trader): amountOut
+export circuit swap(
+  amountIn: Uint<64>,
+  minOut: Uint<64>,
+  zeroForOne: Boolean,
+  trader: Bytes<32>
+): Uint<64> {
+  const amountInPub: Uint<64> = disclose(amountIn);
+  const minOutPub: Uint<64> = disclose(minOut);
+  const zeroForOnePub: Boolean = disclose(zeroForOne);
+  const traderPub: Bytes<32> = disclose(trader);
+
+  // keep variable used so the compiler does not optimize away explicit disclosure
+  assert(traderPub == traderPub, "invalid trader witness");
+
+  assert(initialized, "Pool not initialized");
+  assert(amountInPub > 0, "Invalid amount in");
+
+  const reserveIn: Uint<64> = zeroForOnePub ? reserve0 : reserve1;
+  const reserveOut: Uint<64> = zeroForOnePub ? reserve1 : reserve0;
+
+  const feeMul: FeeMul = (10000 - (feeBps as Uint<64>)) as FeeMul;
+  const amountInWithFee: AmountInWithFee = amountInPub * feeMul;
+
+  const numerator: SwapNumerator = amountInWithFee * reserveOut;
+  const leftDen: AmountInWithFee = reserveIn * 10000;
+  const denominator: SwapDenominator = leftDen + amountInWithFee;
+
+  const amountOutWitness: Uint<64> = divFloor(numerator, denominator);
+  verifyFloorDivision(numerator, denominator, amountOutWitness);
+
+  const amountOut: Uint<64> = disclose(amountOutWitness);
+
+  assert(amountOut >= minOutPub, "Slippage exceeded");
+  assert(amountOut > 0, "Zero output");
+  assert(amountOut < reserveOut, "Insufficient liquidity");
+
+  if (zeroForOnePub) {
+    reserve0 = disclose((reserve0 + amountInPub) as Uint<64>);
+    reserve1 = disclose((reserve1 - amountOut) as Uint<64>);
+  } else {
+    reserve0 = disclose((reserve0 - amountOut) as Uint<64>);
+    reserve1 = disclose((reserve1 + amountInPub) as Uint<64>);
+  }
+
+  const newK: Product128 = reserve0 * reserve1;
+  assert(newK >= kLast, "Invariant violation");
+  kLast = disclose(newK);
+
+  return disclose(amountOut);
+}
+
+export circuit getReserves(): [Uint<64>, Uint<64>] {
+  return [reserve0, reserve1];
+}
+
+export circuit getUserBalance(user: Bytes<32>): Uint<64> {
+  const userPub: Bytes<32> = disclose(user);
+  const bal: Uint<64> = lpBalances.lookup(userPub);
+  return disclose(bal);
+}
+
+export circuit getAmountOut(amountIn: Uint<64>, zeroForOne: Boolean): Uint<64> {
+  const amountInPub: Uint<64> = disclose(amountIn);
+  const zeroForOnePub: Boolean = disclose(zeroForOne);
+
+  assert(initialized, "Pool not initialized");
+  assert(amountInPub > 0, "Invalid amount in");
+
+  const reserveIn: Uint<64> = zeroForOnePub ? reserve0 : reserve1;
+  const reserveOut: Uint<64> = zeroForOnePub ? reserve1 : reserve0;
+
+  const feeMul: FeeMul = (10000 - (feeBps as Uint<64>)) as FeeMul;
+  const amountInWithFee: AmountInWithFee = amountInPub * feeMul;
+
+  const numerator: SwapNumerator = amountInWithFee * reserveOut;
+  const leftDen: AmountInWithFee = reserveIn * 10000;
+  const denominator: SwapDenominator = leftDen + amountInWithFee;
+
+  const amountOutWitness: Uint<64> = divFloor(numerator, denominator);
+  verifyFloorDivision(numerator, denominator, amountOutWitness);
+
+  const amountOut: Uint<64> = disclose(amountOutWitness);
+
+  return disclose(amountOut);
+}
+
+export circuit getAmountIn(amountOut: Uint<64>, zeroForOne: Boolean): Uint<64> {
+  const amountOutPub: Uint<64> = disclose(amountOut);
+  const zeroForOnePub: Boolean = disclose(zeroForOne);
+
+  assert(initialized, "Pool not initialized");
+  assert(amountOutPub > 0, "Invalid amount out");
+
+  const reserveIn: Uint<64> = zeroForOnePub ? reserve0 : reserve1;
+  const reserveOut: Uint<64> = zeroForOnePub ? reserve1 : reserve0;
+  assert(amountOutPub < reserveOut, "Insufficient liquidity");
+
+  const feeMul: FeeMul = (10000 - (feeBps as Uint<64>)) as FeeMul;
+
+  const numerator: SwapNumerator = ((reserveIn * amountOutPub) * 10000) as SwapNumerator;
+  const denominator: SwapDenominator = ((reserveOut - amountOutPub) * feeMul) as SwapDenominator;
+
+  const amountInFloorWitness: Uint<64> = divFloor(numerator, denominator);
+  verifyFloorDivision(numerator, denominator, amountInFloorWitness);
+
+  const amountInFloor: Uint<64> = disclose(amountInFloorWitness);
+
+  return disclose((amountInFloor + 1) as Uint<64>);
+}
+
+export circuit getFeeBps(): Uint<16> {
+  return feeBps;
+}
+
+export circuit isInitialized(): Boolean {
+  return initialized;
+}

@@ -1,0 +1,7 @@
+pragma language_version >= 0.22.0;
+import CompactStandardLibrary;
+
+export circuit testDiv(a: Uint<64>, b: Uint<64>): Uint<64> {
+  const result: Uint<64> = a % b;
+  return disclose(result);
+}
