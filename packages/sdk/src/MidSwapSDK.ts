@@ -425,8 +425,14 @@ export class MidSwapSDK {
     amount1Min: bigint,
     deadlineMinutes: number = 20
   ): Promise<LiquidityResult> {
-    // deadline calculation reserved for future on-chain deadline enforcement
-    void (Math.floor(Date.now() / 1000) + deadlineMinutes * 60);
+    if (!Number.isFinite(deadlineMinutes) || deadlineMinutes <= 0) {
+      throw new MidSwapError(
+        'Transaction deadline exceeded',
+        MidSwapErrorCode.DEADLINE_EXCEEDED
+      );
+    }
+
+    const deadline = Math.floor(Date.now() / 1000) + Math.floor(deadlineMinutes * 60);
 
     // Get pool
     const pool = await this.pools.getPool(poolAddress);
@@ -453,8 +459,22 @@ export class MidSwapSDK {
       );
     }
 
+    if (Math.floor(Date.now() / 1000) > deadline) {
+      throw new MidSwapError(
+        'Transaction deadline exceeded',
+        MidSwapErrorCode.DEADLINE_EXCEEDED
+      );
+    }
+
     // Get user identity bytes for the circuit call
     const userIdentity = await this.wallet.getIdentityBytes32();
+
+    if (Math.floor(Date.now() / 1000) > deadline) {
+      throw new MidSwapError(
+        'Transaction deadline exceeded',
+        MidSwapErrorCode.DEADLINE_EXCEEDED
+      );
+    }
 
     // Execute removeLiquidity circuit via real ZK proving flow
     const txHash = await this.swaps.executeRemoveLiquidity(

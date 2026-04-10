@@ -2,9 +2,17 @@ import React, { Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import { logger, type LogLevel } from '@midswap/sdk';
 import App from './App';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import './index.css';
+
+const configuredLogLevel = import.meta.env.VITE_MIDSWAP_LOG_LEVEL as LogLevel | undefined;
+const validLogLevels: readonly LogLevel[] = ['debug', 'info', 'warn', 'error', 'silent'];
+
+if (configuredLogLevel && validLogLevels.includes(configuredLogLevel)) {
+  logger.setLevel(configuredLogLevel);
+}
 
 function LoadingFallback() {
   return (

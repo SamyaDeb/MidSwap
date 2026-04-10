@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useWalletStore } from '@/store/walletStore';
 import { useSwapStore } from '@/store/swapStore';
+import { formatTokenAmount, parseTokenAmount } from '@/utils';
 import type { PendingSwapInfo } from '@/store/swapStore';
 import toast from 'react-hot-toast';
 
@@ -14,23 +15,6 @@ function useDebounce<T>(value: T, delay: number): T {
   }, [value, delay]);
 
   return debouncedValue;
-}
-
-// Parse token amount string to bigint (e.g. "1.5" with 18 decimals → 1_500_000_000_000_000_000n)
-function parseTokenAmount(amount: string, decimals: number): bigint {
-  if (!amount || amount === '0' || amount === '') return 0n;
-  const [whole, fraction = ''] = amount.split('.');
-  const paddedFraction = fraction.padEnd(decimals, '0').slice(0, decimals);
-  return BigInt((whole || '0') + paddedFraction);
-}
-
-// Format bigint to human-readable string
-function formatTokenAmount(amount: bigint, decimals: number): string {
-  if (amount === 0n) return '';
-  const str = amount.toString().padStart(decimals + 1, '0');
-  const whole = str.slice(0, -decimals) || '0';
-  const fraction = str.slice(-decimals).replace(/0+$/, '');
-  return fraction ? `${whole}.${fraction}` : whole;
 }
 
 export function useSwap() {

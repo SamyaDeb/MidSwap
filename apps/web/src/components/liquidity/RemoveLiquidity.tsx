@@ -95,7 +95,7 @@ export const RemoveLiquidity: React.FC<RemoveLiquidityProps> = ({
       lpTokens: formatTokenAmount(position.lpBalance, lpDisplayDecimals, 4),
       token0Amount: (Number(position.token0Value) / Math.pow(10, tokens[0].decimals)).toFixed(6),
       token1Amount: (Number(position.token1Value) / Math.pow(10, tokens[1].decimals)).toFixed(6),
-      sharePercent: position.poolShare.toFixed(4)
+      sharePercent: (position.poolShare * 100).toFixed(4)
     };
   }, [position, pool, tokens, lpDisplayDecimals]);
 
