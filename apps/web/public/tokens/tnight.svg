@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="nightGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1E1B4B;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#4C1D95;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7C3AED;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <circle cx="50" cy="50" r="48" fill="url(#nightGrad)"/>
+  <!-- Moon crescent -->
+  <circle cx="50" cy="50" r="30" fill="#E9D5FF"/>
+  <circle cx="38" cy="45" r="25" fill="url(#nightGrad)"/>
+  <!-- Stars -->
+  <circle cx="70" cy="30" r="2" fill="#FDE68A"/>
+  <circle cx="75" cy="45" r="1.5" fill="#FDE68A"/>
+  <circle cx="65" cy="55" r="1" fill="#FDE68A"/>
+  <!-- Border -->
+  <circle cx="50" cy="50" r="48" fill="none" stroke="#7C3AED" stroke-width="2"/>
+</svg>
