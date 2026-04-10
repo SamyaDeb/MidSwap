@@ -1,3 +1,5 @@
+<img width="1470" height="834" alt="Screenshot 2026-04-10 at 11 36 19 PM" src="https://github.com/user-attachments/assets/952fc88b-5f22-4808-8c72-61eedd1768e8" />
+
 # MidSwap — Privacy-Preserving DEX on Midnight Blockchain
 
 > **The first real AMM DEX on Midnight** — swap tokens with complete ZK privacy, zero MEV exposure, and on-chain liquidity pools.
@@ -29,7 +31,6 @@ Unlike traditional DEXs where bots can see pending transactions in the mempool, 
 | Action | Tx Hash | Block |
 |--------|---------|-------|
 | OptimalAMM Deploy | `87b8688b10aa30a348c7082734e0701f51a63848dbf5a5f6cea567882514c1d9` | 277969 |
-| mUSDC Deploy & Init | Recorded in `packages/contracts/deployments/` | — |
 
 ### Pool Configuration
 
@@ -153,7 +154,7 @@ pnpm --filter @midswap/web dev
 
 ## Testing the Full Flow
 
-### Frontend E2E Flow
+### E2E Flow
 
 **Step 1 — Add Liquidity (Pools page)**
 1. Open `http://localhost:3006/pools`
@@ -170,16 +171,6 @@ pnpm --filter @midswap/web dev
 **Step 3 — View MEV Savings (MEV Dashboard)**
 1. Go to `http://localhost:3006/mev`
 2. See real-time comparison vs Ethereum DEXs and your protection stats
-
-### E2E Script (CLI)
-
-```bash
-# Test add liquidity from terminal
-DEPLOYER_SEED_PHRASE="your 24 word seed phrase" \
-CONTRACT_ADDRESS=57c54a7c61f60a1f769313d89a4191782fa92c7d91bb51e79bfc9256eca1229b \
-SYNC_TIMEOUT_MS=300000 \
-npx tsx packages/contracts/scripts/test-add-liquidity.ts
-```
 
 ---
 
