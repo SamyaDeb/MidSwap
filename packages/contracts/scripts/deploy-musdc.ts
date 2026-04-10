@@ -308,10 +308,10 @@ async function main() {
   // ===================================================================
   console.log('[3/3] Minting initial mUSDC supply...');
 
-  // Use the unshielded address (32 bytes) as the "to" identity, same as
-  // depositorBytes in init-pool.ts and test-transactions.ts
-  const depositorHex = unshieldedKeystore.getAddress();
-  const toBytes = new Uint8Array(Buffer.from(depositorHex, 'hex'));
+  // Mint to the shielded coin public key bytes, which is the same 32-byte
+  // identity the frontend reads via WalletConnector.getIdentityBytes32().
+  const toBytes = ledger.encodeCoinPublicKey(derivedKeys.shielded.keys.coinPublicKey);
+  const depositorHex = Buffer.from(toBytes).toString('hex');
   if (toBytes.length !== 32) {
     throw new Error(`Expected 32-byte address, got ${toBytes.length}`);
   }

@@ -15,10 +15,10 @@ interface WalletStore extends WalletState {
   clearError: () => void;
 }
 
-const DEFAULT_BALANCE: WalletBalance = {
+const createDefaultBalance = (): WalletBalance => ({
   native: 0n,
-  shieldedTokens: new Map()
-};
+  shieldedTokens: new Map(),
+});
 
 export const useWalletStore = create<WalletStore>()(
   persist(
@@ -29,7 +29,7 @@ export const useWalletStore = create<WalletStore>()(
       isConnecting: false,
       address: null,
       network: 'preprod',
-      balance: DEFAULT_BALANCE,
+      balance: createDefaultBalance(),
       error: null,
 
       // Initialize SDK
@@ -113,7 +113,7 @@ export const useWalletStore = create<WalletStore>()(
         set({
           isConnected: false,
           address: null,
-          balance: DEFAULT_BALANCE
+          balance: createDefaultBalance()
         });
       },
 

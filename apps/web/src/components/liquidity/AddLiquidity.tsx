@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { PlusIcon, InformationCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline';
 import { useWalletStore } from '@/store/walletStore';
+import { formatTokenAmount } from '@/utils';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import type { PoolInfo } from '@midswap/sdk';
@@ -24,6 +25,13 @@ const defaultTokens: [Token, Token] = [
   { symbol: 'mUSDC', name: 'Midnight USDC', decimals: 6, icon: '/tokens/musdc.svg', address: MUSDC_CONTRACT_ADDRESS }
 ];
 
+function getLPDisplayDecimals(pool: PoolInfo | null, tokens: [Token, Token]): number {
+  if (pool) {
+    return Math.min(pool.token0.decimals, pool.token1.decimals);
+  }
+  return Math.min(tokens[0].decimals, tokens[1].decimals);
+}
+
 interface AddLiquidityProps {
   poolAddress?: string;
   tokens?: [Token, Token];
@@ -35,7 +43,7 @@ export const AddLiquidity: React.FC<AddLiquidityProps> = ({
   tokens = defaultTokens,
   onSuccess 
 }) => {
-  const { sdk, isConnected, balance } = useWalletStore();
+  const { sdk, isConnected, balance, connect, isConnecting } = useWalletStore();
   const [amount0, setAmount0] = useState('');
   const [amount1, setAmount1] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -46,6 +54,7 @@ export const AddLiquidity: React.FC<AddLiquidityProps> = ({
   const [customSlippage, setCustomSlippage] = useState('');
   // mUSDC balance read from contract state (not from Lace shielded tokens)
   const [musdcContractBalance, setMusdcContractBalance] = useState<bigint>(0n);
+  const lpDisplayDecimals = useMemo(() => getLPDisplayDecimals(pool, tokens), [pool, tokens]);
 
   // Get real token balances from wallet
   const token0Balance = useMemo(() => {
@@ -71,42 +80,46 @@ export const AddLiquidity: React.FC<AddLiquidityProps> = ({
 
   // Fetch pool data on mount
   useEffect(() => {
+    let cancelled = false;
+
     const fetchPool = async () => {
       if (!poolAddress) return;
 
-      // Show loading while SDK is initializing
       setIsFetchingPool(true);
       setError(null);
 
-      // Wait up to 5 s for sdk to become available
-      let attempts = 0;
-      while (!sdk && attempts < 10) {
-        await new Promise((r) => setTimeout(r, 500));
-        attempts++;
-      }
-
       if (!sdk) {
-        setIsFetchingPool(false);
-        setError('SDK not initialized — please refresh the page');
+        if (!cancelled) {
+          setIsFetchingPool(false);
+        }
         return;
       }
-      
+
       try {
         const poolData = await sdk.getPool(poolAddress);
+        if (cancelled) return;
+
         if (!poolData) {
+          setPool(null);
           setError(`Pool not found at address ${poolAddress.slice(0, 8)}…`);
         } else {
           setPool(poolData);
         }
       } catch (err) {
+        if (cancelled) return;
         const message = err instanceof Error ? err.message : 'Failed to fetch pool';
         setError(message);
       } finally {
-        setIsFetchingPool(false);
+        if (!cancelled) {
+          setIsFetchingPool(false);
+        }
       }
     };
 
     fetchPool();
+    return () => {
+      cancelled = true;
+    };
   }, [sdk, poolAddress]);
 
   // Calculate price ratio from pool reserves
@@ -162,9 +175,9 @@ export const AddLiquidity: React.FC<AddLiquidityProps> = ({
 
     return {
       poolShare: share,
-      lpTokensEstimate: (Number(lpTokens) / Math.pow(10, 18)).toFixed(6)
+      lpTokensEstimate: formatTokenAmount(lpTokens, lpDisplayDecimals, 6)
     };
-  }, [pool, amount0, amount1, tokens]);
+  }, [pool, amount0, amount1, tokens, lpDisplayDecimals]);
 
   // Validation
   // NOTE: Balance checks are intentionally omitted — OptimalAMM is a demo AMM with NO real
@@ -196,6 +209,10 @@ export const AddLiquidity: React.FC<AddLiquidityProps> = ({
       const amount0Desired = BigInt(Math.floor(parseFloat(amount0) * Math.pow(10, tokens[0].decimals)));
       const amount1Desired = BigInt(Math.floor(parseFloat(amount1) * Math.pow(10, tokens[1].decimals)));
 
+      if (amount0Desired <= 0n || amount1Desired <= 0n) {
+        throw new Error('Enter a valid amount');
+      }
+
       // Calculate minimums with slippage
       const slippageMultiplier = BigInt(Math.floor((100 - slippage) * 100)); // e.g., 99.5% = 9950
       const amount0Min = (amount0Desired * slippageMultiplier) / 10000n;
@@ -218,10 +235,10 @@ export const AddLiquidity: React.FC<AddLiquidityProps> = ({
         <div>
           <div className="font-semibold">Liquidity Added!</div>
           <div className="text-sm opacity-80">
-            Added {amount0} {tokens[0].symbol} + {amount1} {tokens[1].symbol}
+            Added {(Number(result.amount0Used) / Math.pow(10, tokens[0].decimals)).toFixed(6)} {tokens[0].symbol} + {(Number(result.amount1Used) / Math.pow(10, tokens[1].decimals)).toFixed(6)} {tokens[1].symbol}
           </div>
           <div className="text-xs opacity-60 mt-1">
-            Received {(Number(result.lpTokens) / 1e18).toFixed(4)} LP tokens
+            Received {formatTokenAmount(result.lpTokens, lpDisplayDecimals, 4)} LP tokens
           </div>
         </div>
       );
@@ -234,6 +251,9 @@ export const AddLiquidity: React.FC<AddLiquidityProps> = ({
         const updatedPool = await sdk.refreshPool(poolAddress);
         setPool(updatedPool);
       }
+
+      // Refresh wallet balance so the rest of the UI stays in sync
+      useWalletStore.getState().refreshBalance();
       
       onSuccess?.();
     } catch (err) {
@@ -245,7 +265,24 @@ export const AddLiquidity: React.FC<AddLiquidityProps> = ({
     }
   };
 
-  const canSubmit = isConnected && amount0 && amount1 && parseFloat(amount0) > 0 && parseFloat(amount1) > 0 && !validationError && pool;
+  const canSubmit = Boolean(
+    isConnected &&
+    pool &&
+    amount0 &&
+    amount1 &&
+    parseFloat(amount0) > 0 &&
+    parseFloat(amount1) > 0 &&
+    !validationError &&
+    !isFetchingPool
+  );
+
+  const handleConnectWallet = async () => {
+    try {
+      await connect();
+    } catch {
+      // Store + toast handling already surface the error.
+    }
+  };
 
   // Loading state while fetching pool
   if (isFetchingPool) {
@@ -447,10 +484,16 @@ export const AddLiquidity: React.FC<AddLiquidityProps> = ({
       {/* Submit Button */}
       {!isConnected ? (
         <button
-          onClick={() => useWalletStore.getState().connect().catch(console.error)}
-          className="w-full mt-4 py-4 rounded-xl font-semibold bg-gradient-to-r from-accent-primary to-accent-secondary hover:opacity-90 transition-opacity"
+          onClick={handleConnectWallet}
+          disabled={isConnecting}
+          className={clsx(
+            'w-full mt-4 py-4 rounded-xl font-semibold transition-opacity',
+            isConnecting
+              ? 'bg-white/10 text-white/40 cursor-not-allowed'
+              : 'bg-gradient-to-r from-accent-primary to-accent-secondary hover:opacity-90'
+          )}
         >
-          Connect Wallet to Add Liquidity
+          {isConnecting ? 'Connecting Wallet...' : 'Connect Wallet to Add Liquidity'}
         </button>
       ) : (
         <button

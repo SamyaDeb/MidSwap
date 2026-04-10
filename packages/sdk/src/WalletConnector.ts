@@ -21,6 +21,9 @@ import { logger } from './logger';
 declare global {
   interface Window {
     midnight?: Record<string, InitialAPI | undefined>;
+    lace?: InitialAPI;
+    midnightLace?: InitialAPI;
+    laceMidnight?: InitialAPI;
   }
 }
 
@@ -45,8 +48,21 @@ export class WalletConnector {
   }
 
   getAvailableProviders(): string[] {
-    if (typeof window === 'undefined' || !window.midnight) return [];
-    return Object.keys(window.midnight).filter(k => window.midnight![k] !== undefined);
+    if (typeof window === 'undefined') return [];
+
+    const providers: string[] = [];
+
+    if (window.midnight) {
+      providers.push(
+        ...Object.keys(window.midnight).filter(k => window.midnight![k] !== undefined)
+      );
+    }
+
+    if (window.lace) providers.push('window.lace');
+    if (window.midnightLace) providers.push('window.midnightLace');
+    if (window.laceMidnight) providers.push('window.laceMidnight');
+
+    return [...new Set(providers)];
   }
 
   /**
@@ -63,9 +79,22 @@ export class WalletConnector {
    * and finally just take the first available provider.
    */
   private findProvider(preferredName?: string): InitialAPI | null {
-    if (typeof window === 'undefined' || !window.midnight) return null;
+    if (typeof window === 'undefined') return null;
+
+    const directProviders: Array<InitialAPI | undefined> = [
+      window.lace,
+      window.midnightLace,
+      window.laceMidnight,
+    ];
+
+    for (const provider of directProviders) {
+      if (provider && typeof provider.connect === 'function') {
+        return provider;
+      }
+    }
 
     const midnight = window.midnight;
+    if (!midnight) return null;
 
     // 1. Try exact preferred name first (e.g. 'lace')
     if (preferredName && midnight[preferredName]) {
@@ -125,14 +154,14 @@ export class WalletConnector {
       );
     }
 
-    // Wait up to 3 s for the extension to inject
-    const provider = await this.waitForProvider(3000);
+    // Extensions can inject late, especially after a hard refresh.
+    const provider = await this.waitForProvider(10000);
 
     if (!provider) {
       const available = this.getAvailableProviders();
       throw new MidSwapError(
         available.length === 0
-          ? 'Midnight wallet not found. Please install the Lace extension and refresh the page.'
+          ? 'Midnight wallet not found. Open the Lace extension once, refresh the page, and make sure the site is allowed in the extension.'
           : `Wallet provider not found. Available providers: ${available.join(', ')}`,
         MidSwapErrorCode.WALLET_NOT_FOUND,
         {

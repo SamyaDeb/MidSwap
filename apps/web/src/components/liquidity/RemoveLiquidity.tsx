@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowDownIcon, InformationCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline';
 import { useWalletStore } from '@/store/walletStore';
+import { formatTokenAmount } from '@/utils';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import type { PoolInfo } from '@midswap/sdk';
@@ -30,6 +31,13 @@ const defaultTokens: [Token, Token] = [
   { symbol: 'mUSDC', name: 'Midnight USDC', decimals: 6, icon: '/tokens/musdc.svg' }
 ];
 
+function getLPDisplayDecimals(pool: PoolInfo | null, tokens: [Token, Token]): number {
+  if (pool) {
+    return Math.min(pool.token0.decimals, pool.token1.decimals);
+  }
+  return Math.min(tokens[0].decimals, tokens[1].decimals);
+}
+
 export const RemoveLiquidity: React.FC<RemoveLiquidityProps> = ({ 
   poolAddress = import.meta.env.VITE_POOL_TNIGHT_MUSDC || '57c54a7c61f60a1f769313d89a4191782fa92c7d91bb51e79bfc9256eca1229b',
   tokens = defaultTokens,
@@ -43,6 +51,7 @@ export const RemoveLiquidity: React.FC<RemoveLiquidityProps> = ({
   const [position, setPosition] = useState<UserPosition | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [slippage] = useState(0.5);
+  const lpDisplayDecimals = useMemo(() => getLPDisplayDecimals(pool, tokens), [pool, tokens]);
 
   // Fetch pool and user position
   useEffect(() => {
@@ -83,12 +92,12 @@ export const RemoveLiquidity: React.FC<RemoveLiquidityProps> = ({
     }
 
     return {
-      lpTokens: (Number(position.lpBalance) / 1e18).toFixed(4),
+      lpTokens: formatTokenAmount(position.lpBalance, lpDisplayDecimals, 4),
       token0Amount: (Number(position.token0Value) / Math.pow(10, tokens[0].decimals)).toFixed(6),
       token1Amount: (Number(position.token1Value) / Math.pow(10, tokens[1].decimals)).toFixed(6),
       sharePercent: position.poolShare.toFixed(4)
     };
-  }, [position, pool, tokens]);
+  }, [position, pool, tokens, lpDisplayDecimals]);
 
   // Calculate amounts based on percentage
   const { lpToRemove, token0ToReceive, token1ToReceive, lpToRemoveBigInt, token0Min, token1Min } = useMemo(() => {
@@ -113,14 +122,14 @@ export const RemoveLiquidity: React.FC<RemoveLiquidityProps> = ({
     const t1Min = (token1Amount * slippageMultiplier) / 10000n;
 
     return {
-      lpToRemove: (Number(lpAmount) / 1e18).toFixed(4),
+      lpToRemove: formatTokenAmount(lpAmount, lpDisplayDecimals, 4),
       token0ToReceive: (Number(token0Amount) / Math.pow(10, tokens[0].decimals)).toFixed(6),
       token1ToReceive: (Number(token1Amount) / Math.pow(10, tokens[1].decimals)).toFixed(6),
       lpToRemoveBigInt: lpAmount,
       token0Min: t0Min,
       token1Min: t1Min
     };
-  }, [position, percentage, tokens, slippage]);
+  }, [position, percentage, tokens, slippage, lpDisplayDecimals]);
 
   const handleRemoveLiquidity = async () => {
     if (!sdk || !isConnected || percentage <= 0 || !position || lpToRemoveBigInt === 0n) {

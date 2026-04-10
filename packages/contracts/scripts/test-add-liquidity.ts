@@ -24,6 +24,10 @@ import WebSocket from 'ws';
 
 (globalThis as any).WebSocket = WebSocket;
 
+// Midnight SDK internals JSON.stringify proof/tx data that may contain BigInt values.
+// This avoids "TypeError: Do not know how to serialize a BigInt" during tx submission.
+(BigInt.prototype as any).toJSON = function () { return this.toString(); };
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -140,26 +144,51 @@ async function queryPoolState(indexerHttp: string, contractAddress: string) {
 // Pool state reader using compact-runtime's queryLedgerState
 // ============================================================
 async function readPoolReserves(stateHex: string) {
-  // Use the same slot-query approach as PoolManager.ts
-  const { queryLedgerState, ContractState, CostModel } = compactRuntime as any;
+  const cr = compactRuntime as any;
   const stateBytes = Uint8Array.from(stateHex.match(/.{1,2}/g)!.map((b: string) => parseInt(b, 16)));
-  const contractState = ContractState.deserialize(stateBytes);
+  const cs = cr.ContractState.deserialize(stateBytes);
+  const chargedState = cs.data;
 
-  function readSlot(slotIdx: bigint): unknown {
-    return queryLedgerState(
-      contractState,
-      'dummy',
-      CostModel?.free ?? (() => {}),
-      (s: any) => { s.dup(); s.idx(slotIdx); s.popeq(1); }
+  const context = {
+    currentQueryContext: new cr.QueryContext(chargedState, cr.dummyContractAddress()),
+    costModel: cr.CostModel.initialCostModel(),
+  };
+  const partialProofData = {
+    input: { value: [], alignment: [] },
+    output: undefined,
+    publicTranscript: [],
+    privateTranscriptOutputs: [],
+  };
+
+  const u64 = new cr.CompactTypeUnsignedInteger(18446744073709551615n, 8);
+  const bool = cr.CompactTypeBoolean;
+  const u8 = new cr.CompactTypeUnsignedInteger(255n, 1);
+
+  function readSlot(slotIdx: number, descriptor: any): any {
+    return descriptor.fromValue(
+      cr.queryLedgerState(context, partialProofData, [
+        { dup: { n: 0 } },
+        {
+          idx: {
+            cached: false,
+            pushPath: false,
+            path: [{
+              tag: 'value',
+              value: { value: u8.toValue(BigInt(slotIdx)), alignment: u8.alignment() },
+            }],
+          },
+        },
+        { popeq: { cached: false, result: undefined } },
+      ]).value,
     );
   }
 
   try {
     // Slot 0 = reserve0, Slot 1 = reserve1, Slot 2 = totalLPSupply, Slot 4 = initialized
-    const reserve0 = BigInt(String(readSlot(0n) ?? 0) || '0');
-    const reserve1 = BigInt(String(readSlot(1n) ?? 0) || '0');
-    const totalLPSupply = BigInt(String(readSlot(2n) ?? 0) || '0');
-    const initialized = Boolean(readSlot(4n));
+    const reserve0 = readSlot(0, u64) as bigint;
+    const reserve1 = readSlot(1, u64) as bigint;
+    const totalLPSupply = readSlot(2, u64) as bigint;
+    const initialized = readSlot(4, bool) as boolean;
     return { reserve0, reserve1, totalLPSupply, initialized };
   } catch {
     // Fall back to returning raw hex length
@@ -225,7 +254,7 @@ async function main() {
   // The addLiquidity circuit requires integer pairs that satisfy
   // amount0 * reserve1 == amount1 * reserve0 exactly.
   // So we quantize deposits by the reduced reserve ratio.
-  const amount0 = BigInt(process.env.AMOUNT0 || '100');
+  let amount0 = BigInt(process.env.AMOUNT0 || '100');
 
   let amount1: bigint;
   if (reserve0 === 0n || reserve1 === 0n) {
@@ -244,6 +273,7 @@ async function main() {
     amount1 = unit1 * multiplier;
     if (quantizedAmount0 !== amount0) {
       console.log(`  Adjusted amount0 from ${amount0} to ${quantizedAmount0} to satisfy exact pool ratio`);
+      amount0 = quantizedAmount0;
     }
   }
   console.log(`\n[4/7] Amounts to add: amount0=${amount0} amount1=${amount1}`);
@@ -277,7 +307,7 @@ async function main() {
 
   await wallet.start(derivedKeys.shielded.keys, derivedKeys.dust.key);
 
-  const SYNC_TIMEOUT_MS = parseInt(process.env.SYNC_TIMEOUT_MS || '120000', 10);
+  const SYNC_TIMEOUT_MS = parseInt(process.env.SYNC_TIMEOUT_MS || '600000', 10);
   try {
     await Promise.race([
       wallet.waitForSyncedState(),

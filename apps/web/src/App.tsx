@@ -31,6 +31,18 @@ function App() {
       } else {
         console.warn('[MidSwap] window.midnight is not defined. Lace extension may not be installed or not injected yet.');
       }
+
+      const directGlobals = ['lace', 'midnightLace', 'laceMidnight'] as const;
+      for (const key of directGlobals) {
+        const provider = (window as any)[key];
+        if (provider) {
+          console.info(`[MidSwap] window.${key} found:`, {
+            name: provider?.name,
+            rdns: provider?.rdns,
+            apiVersion: provider?.apiVersion,
+          });
+        }
+      }
     }, 1500);
 
     return () => clearTimeout(timer);

@@ -4,6 +4,7 @@ import { AddLiquidity } from '@/components/liquidity/AddLiquidity';
 import { RemoveLiquidity } from '@/components/liquidity/RemoveLiquidity';
 import { useWalletStore } from '@/store/walletStore';
 import { getTokenPrices, formatUSD } from '@/services/PriceOracle';
+import { formatTokenAmount } from '@/utils';
 import type { PoolInfo } from '@midswap/sdk';
 
 interface Pool extends PoolInfo {
@@ -196,7 +197,7 @@ export const PoolsPage: React.FC = () => {
   // Format user LP position
   const formatUserPosition = useCallback((pool: Pool): string | null => {
     if (!pool.userPosition || pool.userPosition.lpBalance === 0n) return null;
-    return `${(Number(pool.userPosition.lpBalance) / 1e18).toFixed(4)} LP`;
+    return `${formatTokenAmount(pool.userPosition.lpBalance, pool.token0.decimals, 4)} LP`;
   }, []);
 
   // Calculate user position USD value
@@ -273,7 +274,10 @@ export const PoolsPage: React.FC = () => {
             <ArrowPathIcon className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
           <button 
-            onClick={() => setShowAddModal(true)}
+            onClick={() => {
+              setSelectedPool(pools[0] ?? null);
+              setShowAddModal(true);
+            }}
             className="bg-gradient-to-r from-accent-primary to-accent-secondary px-4 py-2.5 rounded-xl font-semibold flex items-center gap-2 hover:opacity-90 transition-opacity"
           >
             <PlusIcon className="w-5 h-5" />

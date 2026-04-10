@@ -2,8 +2,8 @@
   "contractName": "MidnightUSDC",
   "contractAddress": "c85172925beae8334c01135cfbd364cf2f6858e173be8c13bb82197890f645f4",
   "network": "preprod",
-  "deployedAt": "2026-04-10T11:27:25.966Z",
+  "deployedAt": "2026-04-10T18:10:56.525Z",
   "initialized": true,
-  "mintedTo": "cded1720b57cb367575dfd3c48de314d2db12065805b134f3637df6d0118c0a4",
+  "mintedTo": "246835161011d3ee9f4506257a45b3b7ceb03072495d1fda7cd3737512e53118",
   "mintedAmount": "100000000"
 }

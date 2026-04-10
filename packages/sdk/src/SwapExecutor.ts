@@ -32,6 +32,7 @@ let _sdkModules: {
   ZKConfigProvider: any;
   CompiledContract: any;
   ContractExecutable: any;
+  submitCallTxAsync: any;
   indexerPublicDataProvider: any;
 } | null = null;
 
@@ -70,6 +71,7 @@ async function getSDKModules() {
       ]);
     _sdkModules = {
       findDeployedContract: (contracts as any).findDeployedContract,
+      submitCallTxAsync: (contracts as any).submitCallTxAsync,
       httpClientProofProvider: (proofProvider as any).httpClientProofProvider,
       httpClientProvingProvider: (proofProvider as any).httpClientProvingProvider,
       setNetworkId: (networkId as any).setNetworkId,
@@ -80,6 +82,28 @@ async function getSDKModules() {
     };
   }
   return _sdkModules;
+}
+
+// -------------------------------------------------------
+// In-memory private state provider for browser sessions.
+// OptimalAMM's witnesses are effectively stateless, but the SDK still uses
+// this provider for signing key persistence and for contract paths that expect
+// a private-state slot to exist.
+// -------------------------------------------------------
+
+function createInMemoryPrivateStateProvider() {
+  let _contractAddress: string | null = null;
+  const _states = new Map<string, any>();
+  const _signingKeys = new Map<string, any>();
+
+  return {
+    setContractAddress(addr: string) { _contractAddress = addr; },
+    getContractAddress() { return _contractAddress; },
+    async get(key: string) { return _states.get(key); },
+    async set(key: string, value: any) { _states.set(key, value); },
+    async getSigningKey(addr: string) { return _signingKeys.get(addr); },
+    async setSigningKey(addr: string, key: any) { _signingKeys.set(addr, key); },
+  };
 }
 
 // -------------------------------------------------------
@@ -147,34 +171,23 @@ function bytesToHex(bytes: Uint8Array): string {
     .join('');
 }
 
-// -------------------------------------------------------
-// In-memory private state provider for contracts with no private state
-// (OptimalAMM is purely public state — no private state needed)
-// -------------------------------------------------------
+function hexToBytes(hex: string): Uint8Array {
+  const normalized = hex.trim();
+  if (normalized.length % 2 !== 0) {
+    throw new Error(`Invalid hex string length: ${normalized.length}`);
+  }
 
-function createInMemoryPrivateStateProvider() {
-  let _contractAddress: string | null = null;
-  const _states = new Map<string, any>();
-  const _signingKeys = new Map<string, any>();
-
-  return {
-    setContractAddress(addr: string) { _contractAddress = addr; },
-    getContractAddress() { return _contractAddress; },
-    async get(key: string) { return _states.get(key) ?? {}; },
-    async set(key: string, value: any) { _states.set(key, value); },
-    async getSigningKey(addr: string) { return _signingKeys.get(addr); },
-    async setSigningKey(addr: string, key: any) { _signingKeys.set(addr, key); },
-  };
+  const bytes = new Uint8Array(normalized.length / 2);
+  for (let i = 0; i < normalized.length; i += 2) {
+    bytes[i / 2] = parseInt(normalized.slice(i, i + 2), 16);
+  }
+  return bytes;
 }
 
 // -------------------------------------------------------
-// Cached contract instance for findDeployedContract
-// -------------------------------------------------------
-let _cachedContractInstance: { address: string; contract: any } | null = null;
-
-// -------------------------------------------------------
 // Core: execute a contract call using the proven SDK path
-// Uses findDeployedContract + callTx — the same approach as init-pool.ts
+// Uses submitCallTxAsync + watchForTxData to avoid browser runtime issues in
+// scoped callTx transaction merging.
 // -------------------------------------------------------
 async function executeContractCall(
   wallet: WalletConnector,
@@ -193,7 +206,13 @@ async function executeContractCall(
     getWitnessesModule(),
   ]);
 
-  const { findDeployedContract, httpClientProofProvider, setNetworkId, CompiledContract, indexerPublicDataProvider } = sdk;
+  const {
+    submitCallTxAsync,
+    httpClientProofProvider,
+    setNetworkId,
+    CompiledContract,
+    indexerPublicDataProvider,
+  } = sdk;
 
   // Set network ID (required by Midnight SDK)
   setNetworkId(config.network === 'mainnet' ? 'mainnet' : 'preprod');
@@ -233,7 +252,7 @@ async function executeContractCall(
   const encryptionPublicKey = addresses.shieldedEncryptionPublicKey;
 
   // 5. Wallet Provider — bridges Lace DApp Connector to SDK wallet interface
-  //    balanceTx: serialize proven tx → Lace balanceUnsealedTransaction → return balanced hex
+  //    balanceTx: serialize proven tx → Lace balanceUnsealedTransaction → deserialize to FinalizedTransaction
   //    The SDK calls: proofProvider.proveTx(unprovenTx) → walletProvider.balanceTx(provenTx) → midnightProvider.submitTx
   const walletProvider = {
     balanceTx: async (provenTx: any, _ttl?: Date) => {
@@ -241,8 +260,8 @@ async function executeContractCall(
       const txHex = bytesToHex(txBytes);
       logger.info(`Balancing transaction (${txBytes.length} bytes) via Lace…`);
       const { tx: balancedHex } = await walletApi.balanceUnsealedTransaction(txHex);
-      // Return the balanced hex as-is — midnightProvider.submitTx will receive it
-      return balancedHex;
+      const { Transaction } = await import('@midnight-ntwrk/ledger-v8');
+      return Transaction.deserialize('signature', 'proof', 'binding', hexToBytes(balancedHex));
     },
     getCoinPublicKey: () => coinPublicKey,
     getEncryptionPublicKey: () => encryptionPublicKey,
@@ -250,18 +269,17 @@ async function executeContractCall(
 
   // 6. Midnight Provider — submits balanced tx via Lace
   const midnightProvider = {
-    submitTx: async (balancedTxHex: any) => {
+    submitTx: async (finalizedTx: any) => {
       logger.info('Submitting transaction via Lace…');
-      const txHexStr = typeof balancedTxHex === 'string' ? balancedTxHex : bytesToHex(balancedTxHex.serialize());
-      await walletApi.submitTransaction(txHexStr);
-      // Lace submitTransaction returns void.
-      // Return a recognizable placeholder — the real confirmation comes from callTx's
-      // result.public.status / result.public.txHash which are populated by the SDK pipeline.
-      return `lace-submitted-${Date.now()}`;
+      const txId = finalizedTx.identifiers()[0];
+      const txHex = bytesToHex(finalizedTx.serialize());
+      await walletApi.submitTransaction(txHex);
+      logger.info(`Transaction submitted, txId=${txId}`);
+      return txId;
     },
   };
 
-  // 7. Private State Provider (in-memory, empty — OptimalAMM has no private state)
+  // 7. Private State Provider
   const privateStateProvider = createInMemoryPrivateStateProvider();
 
   // 8. Build providers object matching the midnight-js-contracts interface
@@ -274,40 +292,29 @@ async function executeContractCall(
     midnightProvider,
   } as any;
 
-  // 9. Get or create contract instance via findDeployedContract
-  if (!_cachedContractInstance || _cachedContractInstance.address !== contractAddress) {
-    logger.info(`Setting up contract instance for ${contractAddress}…`);
+  const witnesses = (createWitnesses as any)();
+  const compiledContract = (CompiledContract as any)
+    .make('OptimalAMM', Contract)
+    .pipe(
+      (CompiledContract as any).withWitnesses(witnesses),
+    );
 
-    const witnesses = (createWitnesses as any)();
-    const compiledContract = (CompiledContract as any)
-      .make('OptimalAMM', Contract)
-      .pipe(
-        (CompiledContract as any).withWitnesses(witnesses),
-      );
-
-    const contract = await findDeployedContract(providers, {
-      compiledContract: compiledContract as any,
-      contractAddress: contractAddress as any,
-      privateStateId: 'optimalAMMPrivateState',
-      initialPrivateState: {},
-    });
-
-    _cachedContractInstance = { address: contractAddress, contract };
-  }
-
-  // 10. Call the circuit via callTx
-  //     callTx is a full pipeline: prove → balance → submit → wait for result.
-  //     The returned result.public contains the real on-chain outcome (status, txHash, blockHeight).
+  // 9. Submit the circuit call directly and wait for finalization.
   logger.info(`Calling circuit '${circuitId}' on contract ${contractAddress}…`);
-  const callFn = _cachedContractInstance.contract.callTx[circuitId];
-  if (!callFn) {
-    throw new Error(`Circuit '${circuitId}' not found on contract callTx interface`);
-  }
+  const { txId, callTxData } = await submitCallTxAsync(providers, {
+    compiledContract: compiledContract as any,
+    contractAddress: contractAddress as any,
+    circuitId,
+    args,
+  });
 
-  const result = await callFn(...args);
+  const finalized = await publicDataProvider.watchForTxData(txId);
+  const result = {
+    ...callTxData,
+    public: finalized,
+  };
 
-  // Extract transaction details from the SDK result
-  // The midnight-js-contracts pipeline populates result.public with the on-chain outcome
+  // Extract transaction details from the finalized result.
   const txHash = result?.public?.txHash ?? result?.txHash ?? 'unknown';
   const status = result?.public?.status ?? result?.status ?? 'unknown';
   const blockHeight = result?.public?.blockHeight ?? result?.blockHeight ?? 0;

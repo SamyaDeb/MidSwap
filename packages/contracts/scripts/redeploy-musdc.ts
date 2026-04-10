@@ -342,8 +342,8 @@ async function main(): Promise<void> {
   console.log('[3/3] Minting initial mUSDC supply...');
   console.log(`  Amount: ${MINT_AMOUNT} raw units (= ${Number(MINT_AMOUNT) / 1_000_000} mUSDC)`);
 
-  const depositorHex = unshieldedKeystore.getAddress();
-  const toBytes = new Uint8Array(Buffer.from(depositorHex, 'hex'));
+  const toBytes = ledger.encodeCoinPublicKey(derivedKeys.shielded.keys.coinPublicKey);
+  const depositorHex = Buffer.from(toBytes).toString('hex');
   if (toBytes.length !== 32) {
     await wallet.stop();
     throw new Error(`Expected 32-byte address, got ${toBytes.length}`);

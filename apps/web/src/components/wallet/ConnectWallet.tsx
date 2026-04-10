@@ -20,18 +20,24 @@ export const ConnectWallet: React.FC<ConnectWalletProps> = ({ className }) => {
 
   // Show error toast with helpful guidance
   useEffect(() => {
-    if (error) {
-      // Check if it's a "not found" error and give better guidance
-      if (error.includes('not found') || error.includes('not installed')) {
-        const midnight = (window as any).midnight;
-        const keys = midnight ? Object.keys(midnight) : [];
-        const msg = keys.length > 0
-          ? `Lace not detected. Found providers: [${keys.join(', ')}]. Check browser console for details.`
-          : 'Lace wallet not detected. Make sure the Lace extension is installed, enabled for this site, and the page is served over http/https (not file://).';
-        toast.error(msg, { duration: 8000 });
-      } else {
-        toast.error(error, { duration: 6000 });
-      }
+      if (error) {
+        // Check if it's a "not found" error and give better guidance
+        if (error.includes('not found') || error.includes('not installed')) {
+          const midnight = (window as any).midnight;
+          const keys = midnight ? Object.keys(midnight) : [];
+          const globals = [
+            (window as any).lace ? 'window.lace' : null,
+            (window as any).midnightLace ? 'window.midnightLace' : null,
+            (window as any).laceMidnight ? 'window.laceMidnight' : null,
+          ].filter(Boolean);
+          const found = [...keys, ...globals];
+          const msg = found.length > 0
+            ? `Lace not connected yet. Found wallet globals: [${found.join(', ')}]. Refresh once after opening the extension, then try again.`
+            : 'Lace wallet global not detected yet. Open the Lace extension, refresh the page, and ensure the site is allowed by the extension.';
+          toast.error(msg, { duration: 8000 });
+        } else {
+          toast.error(error, { duration: 6000 });
+        }
       clearError();
     }
   }, [error, clearError]);
