@@ -1,6 +1,18 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": ["**/.env.*local"],
+  "globalEnv": [
+    "VITE_MIDNIGHT_RPC_URL",
+    "VITE_MIDNIGHT_INDEXER_URL",
+    "VITE_PROOF_SERVER_URL",
+    "VITE_NETWORK",
+    "VITE_POOL_TNIGHT_MUSDC",
+    "VITE_MUSDC_ADDRESS",
+    "VITE_ZK_BASE_URL",
+    "VITE_DEBUG",
+    "VITE_MIDSWAP_LOG_LEVEL",
+    "MIDSWAP_LOG_LEVEL"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

@@ -73,6 +73,7 @@ apps/web/app/
 apps/web/next-env.d.ts
 apps/web/next.config.mjs
 
+
 # Managed contract build outputs
 packages/contracts/managed/*/compiler/
 packages/contracts/managed/.build-skipped

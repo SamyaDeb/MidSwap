@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "vite --port 3006",
-    "build": "tsc && vite build",
+    "prepare:zk": "node scripts/prepare-zk-assets.cjs",
+    "dev": "pnpm run prepare:zk && vite --port 3006",
+    "build": "pnpm run prepare:zk && tsc && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

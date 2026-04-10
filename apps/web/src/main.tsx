@@ -7,7 +7,7 @@ import App from './App';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import './index.css';
 
-const configuredLogLevel = import.meta.env.VITE_MIDSWAP_LOG_LEVEL as LogLevel | undefined;
+const configuredLogLevel = (import.meta.env.VITE_MIDSWAP_LOG_LEVEL || import.meta.env.MIDSWAP_LOG_LEVEL) as LogLevel | undefined;
 const validLogLevels: readonly LogLevel[] = ['debug', 'info', 'warn', 'error', 'silent'];
 
 if (configuredLogLevel && validLogLevels.includes(configuredLogLevel)) {

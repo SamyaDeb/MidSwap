@@ -6,12 +6,8 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [
-    react(),
-    wasm(),
-    topLevelAwait(),
-    // ZK assets are served via public/zk/ symlinks to packages/contracts/managed/OptimalAMM/
-  ],
+  plugins: [react(), wasm(), topLevelAwait()],
+  envPrefix: ['VITE_', 'MIDSWAP_'],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
