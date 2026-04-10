@@ -1,0 +1,104 @@
+pragma language_version >= 0.22.0;
+import CompactStandardLibrary;
+
+// ============================================================
+// MidnightUSDC (mUSDC) — Fungible Token Contract
+//
+// A simple on-chain token with mint, transfer, burn, and query
+// circuits. Deployed on Midnight preprod as a real token
+// contract (not just a placeholder label).
+//
+// - Permissionless minting on testnet (any address can mint)
+// - 6 decimals (matches USDC convention)
+// - Balances stored in a public Map<Bytes<32>, Uint<64>>
+// - No contract-to-contract calls; SDK orchestrates flows
+// ============================================================
+
+// Public state
+ledger totalSupply: Uint<64>;
+ledger balances: Map<Bytes<32>, Uint<64>>;
+ledger initialized: Boolean;
+ledger tokenName: Uint<64>;     // encoded "mUSDC" — not used in logic, just on-chain metadata
+
+// Initialize the token contract
+export circuit initialize(): Boolean {
+  assert(!initialized, "Already initialized");
+  totalSupply = disclose(0 as Uint<64>);
+  initialized = disclose(true);
+  return disclose(true);
+}
+
+// Mint tokens to an address (permissionless on testnet)
+export circuit mint(to: Bytes<32>, amount: Uint<64>): Uint<64> {
+  assert(initialized, "Not initialized");
+  const toPub: Bytes<32> = disclose(to);
+  const amountPub: Uint<64> = disclose(amount);
+  assert(amountPub > 0, "Amount must be positive");
+
+  const current: Uint<64> = balances.member(toPub) ? balances.lookup(toPub) : (0 as Uint<64>);
+  const newBalance: Uint<64> = (current + amountPub) as Uint<64>;
+  balances.insert(toPub, newBalance);
+
+  totalSupply = disclose((totalSupply + amountPub) as Uint<64>);
+
+  return disclose(newBalance);
+}
+
+// Transfer tokens between addresses
+export circuit transfer(
+  sender: Bytes<32>,
+  recipient: Bytes<32>,
+  amount: Uint<64>
+): Uint<64> {
+  assert(initialized, "Not initialized");
+  const senderPub: Bytes<32> = disclose(sender);
+  const recipientPub: Bytes<32> = disclose(recipient);
+  const amountPub: Uint<64> = disclose(amount);
+  assert(amountPub > 0, "Amount must be positive");
+
+  const senderBalance: Uint<64> = balances.lookup(senderPub);
+  assert(senderBalance >= amountPub, "Insufficient balance");
+
+  const recipientBalance: Uint<64> = balances.member(recipientPub) ? balances.lookup(recipientPub) : (0 as Uint<64>);
+
+  balances.insert(senderPub, (senderBalance - amountPub) as Uint<64>);
+  balances.insert(recipientPub, (recipientBalance + amountPub) as Uint<64>);
+
+  // Return sender's new balance
+  return disclose((senderBalance - amountPub) as Uint<64>);
+}
+
+// Burn tokens from an address
+export circuit burn(owner: Bytes<32>, amount: Uint<64>): Uint<64> {
+  assert(initialized, "Not initialized");
+  const ownerPub: Bytes<32> = disclose(owner);
+  const amountPub: Uint<64> = disclose(amount);
+  assert(amountPub > 0, "Amount must be positive");
+
+  const balance: Uint<64> = balances.lookup(ownerPub);
+  assert(balance >= amountPub, "Insufficient balance");
+
+  const newBalance: Uint<64> = (balance - amountPub) as Uint<64>;
+  balances.insert(ownerPub, newBalance);
+
+  totalSupply = disclose((totalSupply - amountPub) as Uint<64>);
+
+  return disclose(newBalance);
+}
+
+// Query balance of an address
+export circuit balanceOf(user: Bytes<32>): Uint<64> {
+  const userPub: Bytes<32> = disclose(user);
+  const bal: Uint<64> = balances.member(userPub) ? balances.lookup(userPub) : (0 as Uint<64>);
+  return disclose(bal);
+}
+
+// Query total supply
+export circuit getTotalSupply(): Uint<64> {
+  return totalSupply;
+}
+
+// Check if initialized
+export circuit isInitialized(): Boolean {
+  return initialized;
+}
