@@ -1,0 +1,33 @@
+{
+  "name": "midswap",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Privacy-Preserving DEX on Midnight Blockchain",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "contracts:build": "pnpm --filter @midswap/contracts build",
+    "contracts:test": "pnpm --filter @midswap/contracts test",
+    "contracts:deploy": "pnpm --filter @midswap/contracts deploy",
+    "sdk:build": "pnpm --filter @midswap/sdk build",
+    "sdk:test": "pnpm --filter @midswap/sdk test",
+    "web:dev": "pnpm --filter @midswap/web dev",
+    "web:build": "pnpm --filter @midswap/web build",
+    "proof-server:start": "docker-compose up -d",
+    "proof-server:stop": "docker-compose down",
+    "proof-server:logs": "docker-compose logs -f",
+    "test:smoke": "pnpm --filter @midswap/contracts test:smoke",
+    "test:e2e": "pnpm --filter @midswap/contracts test:e2e"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
+  },
+  "packageManager": "pnpm@8.15.0",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
