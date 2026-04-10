@@ -1,0 +1,21 @@
+{
+  "version": "0.22.0",
+  "contracts": {
+    "OptimalAMM": {
+      "source": "src/OptimalAMM.compact",
+      "output": "managed/OptimalAMM"
+    },
+    "LiquidityPool": {
+      "source": "src/LiquidityPool.compact",
+      "output": "managed/LiquidityPool"
+    },
+    "MidnightUSDC": {
+      "source": "src/MidnightUSDC.compact",
+      "output": "managed/MidnightUSDC"
+    }
+  },
+  "options": {
+    "optimization": "default",
+    "debug": false
+  }
+}
