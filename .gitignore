@@ -67,3 +67,13 @@ secrets.json
 *.tgz
 *.tar.gz
 .cache/
+
+# Next.js migration artifacts (reverted)
+apps/web/app/
+apps/web/next-env.d.ts
+apps/web/next.config.mjs
+
+# Managed contract build outputs
+packages/contracts/managed/*/compiler/
+packages/contracts/managed/.build-skipped
+packages/contracts/managed/.gitkeep

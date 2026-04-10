@@ -29,6 +29,9 @@ importers:
       '@midnight-ntwrk/ledger':
         specifier: ^4.0.0
         version: 4.0.0
+      '@midnight-ntwrk/ledger-v8':
+        specifier: ^8.0.3
+        version: 8.0.3
       '@midnight-ntwrk/wallet-api':
         specifier: ^5.0.0
         version: 5.0.0(rxjs@7.8.2)
