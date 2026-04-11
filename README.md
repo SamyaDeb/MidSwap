@@ -33,6 +33,12 @@ Unlike traditional DEXs where bots can see pending transactions in the mempool, 
 |--------|---------|-------|
 | OptimalAMM Deploy | `87b8688b10aa30a348c7082734e0701f51a63848dbf5a5f6cea567882514c1d9` | 277969 |
 
+## 🔗 Resources
+
+- 🐦 X (Twitter): [@MidSwap_midn](https://x.com/MidSwap_midn)
+- 📊 Pitch Deck: [View Presentation](https://drive.google.com/file/d/1_lnzT2-8hQBaLB-XmAXKmM27lXcwV8kt/view)
+- 🎥 Demo Video: [Watch on YouTube](https://www.youtube.com/watch?v=E1QpKRMLPiQ)
+
 ### Pool Configuration
 
 | Parameter | Value |
